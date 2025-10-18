@@ -2,10 +2,6 @@
   <img src="logo.jpeg" alt="ClasSGit Logo" width="500">
 </p>
 
-🏛️ **Currently finished !** – most features and goals of the project are finished.
-
-📚 **Project progress :** ![](https://geps.dev/progress/100?dangerColor=800000&warningColor=ff9900&successColor=006600)
-
 ClassGit is a tool that allows you to **store your course files safely online, using Git, and Age to encrypt them**. Here, I'll use **GitHub** to show you around, because it's easier, but you can do this with any git configuration. Even if someone can access your Git repository, they cannot read your courses because all files are encrypted. This way, your courses are stored online, encrypted, and you can access them sefely and privately with any device.
 
 This guide explains everything from installing required tools to pushing and pulling courses, with examples and explanations for each step.
