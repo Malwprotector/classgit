@@ -101,7 +101,7 @@ ClassGit is a system for secure synchronization of your course files using Git a
 **Encrypted files:** Stored on GitHub only, local files remain unencrypted.
 **Key location:** `{AGE_KEY_PATH}` (never pushed)
 **Public key:** stored locally for encryption
-**Do not remove** the `{LOCAL_DIR}`/.git folder. 
+**Do not remove** the `{LOCAL_DIR}/.git` folder.
 
 
 ## Usage
@@ -123,67 +123,89 @@ def push_courses(repo_url):
         print("No course files found to push.")
         return
 
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        tmpdir = Path(tmpdirname)
+    ENCRYPTED_DIR = LOCAL_DIR / "encrypted"
+    ENCRYPTED_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Clone remote repo into temp dir
-        run(f"git clone {repo_url} {tmpdir}", cwd=LOCAL_DIR)
+    # Encrypt only new or modified files into ENCRYPTED_DIR
+    for root, dirs, files in os.walk(COURSES_DIR):
+        rel_path = Path(root).relative_to(COURSES_DIR)
+        for d in dirs:
+            (ENCRYPTED_DIR / rel_path / d).mkdir(parents=True, exist_ok=True)
+        for f in files:
+            src = Path(root) / f
+            dst = ENCRYPTED_DIR / rel_path / (f + ".age")
+            if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+                print(f"Encrypting {src} → {dst}")
+                encrypt_file(src, recipient, dst)
 
-        # Encrypt files recursively
-        for root, dirs, files in os.walk(COURSES_DIR):
-            rel_path = Path(root).relative_to(COURSES_DIR)
-            for d in dirs:
-                (tmpdir / rel_path / d).mkdir(parents=True, exist_ok=True)
-            for f in files:
-                src = Path(root) / f
-                dst = tmpdir / rel_path / (f + ".age")
-                if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
-                    encrypt_file(src, recipient, dst)
+    # Generate README.md in repo root
+    generate_readme(LOCAL_DIR)
 
-        # Generate README.md in temp repo
-        generate_readme(tmpdir)
+    # Add gitignore and README
+    with open(LOCAL_DIR / ".gitignore", "w") as f:
+        f.write("# Ignore local and sensitive data\n")
+        f.write("config/\n")
+        f.write("courses/\n")
+        f.write("\n# Keep encrypted files and README\n")
+        f.write("!.age\n")
+        f.write("!*.age\n")
+        f.write("!README.md\n")
 
-        # Add gitignore
-        with open(tmpdir / ".gitignore", "w") as f:
-            f.write("config/age_key.txt\n")
-        run("git add .gitignore", cwd=tmpdir)
+    run("git add .gitignore README.md", cwd=LOCAL_DIR)
 
-        # Add README.md
-        run("git add README.md", cwd=tmpdir)
+    # Stage only encrypted files (not the local courses)
+    run(f"git add {ENCRYPTED_DIR}", cwd=LOCAL_DIR)
 
-        # Add new or changed files
-        run("git add .", cwd=tmpdir)
-        status = subprocess.run("git status --porcelain", shell=True, cwd=tmpdir, capture_output=True, text=True)
-        if status.stdout.strip():
-            run('git commit -m "Update courses and README"', cwd=tmpdir)
-            run("git push", cwd=tmpdir)
-            print("Courses encrypted and pushed. Local files remain unencrypted.")
-        else:
-            print("No changes detected. Nothing to push.")
+    # Commit and push
+    status = subprocess.run("git status --porcelain", shell=True, cwd=LOCAL_DIR,
+                            capture_output=True, text=True)
+    if status.stdout.strip():
+        run('git commit -m "Update encrypted courses and README"', cwd=LOCAL_DIR)
+        # Handle missing upstream branch automatically
+        result = subprocess.run("git push", shell=True, cwd=LOCAL_DIR)
+        if result.returncode != 0:
+            # Push changes, setting upstream if needed
+            push_cmd = "git push"
+            result = subprocess.run(push_cmd, shell=True, cwd=LOCAL_DIR)
+            if result.returncode != 0:
+                run("git push -u origin main", cwd=LOCAL_DIR)
+
+        print("Courses encrypted and pushed successfully.")
+    else:
+        print("No changes detected. Nothing to push.")
 
 def pull_courses():
-    """Pull encrypted files from GitHub and decrypt into COURSES_DIR."""
-    temp_pull = tempfile.TemporaryDirectory()
-    tmpdir = Path(temp_pull.name)
+    print("Pulling latest encrypted files from remote...")
+    subprocess.run(["git", "pull"], cwd=LOCAL_DIR)
 
-    # Clone remote into temp folder
-    repo_url = REPO_FILE.read_text().strip()
-    run(f"git clone {repo_url} {tmpdir}", cwd=LOCAL_DIR)
+    encrypted_dir = LOCAL_DIR / "encrypted"
+    decrypted_dir = Path.home() / "ClassGit" / "courses"
+    decrypted_dir.mkdir(parents=True, exist_ok=True)
 
-    # Ensure courses dir exists
-    COURSES_DIR.mkdir(exist_ok=True)
+    # Iterate through all .age files in the repo (including nested folders if needed)
+    for root, _, files in os.walk(encrypted_dir):
+        for file in files:
+            if file.endswith(".age"):
+                src = Path(root) / file
+                relative = src.relative_to(encrypted_dir)
+                dst = decrypted_dir / relative.with_suffix("")  # remove .age
 
-    # Decrypt all .age files into COURSES_DIR, preserving structure
-    for root, dirs, files in os.walk(tmpdir):
-        rel_path = Path(root).relative_to(tmpdir)
-        target_dir = COURSES_DIR / rel_path
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for f in files:
-            if f.endswith(".age"):
-                decrypt_file(Path(root)/f, AGE_KEY_PATH, target_dir / Path(f).with_suffix('').name)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                cmd = [
+                    "age",
+                    "-d",
+                    "-i",
+                    str(AGE_KEY_PATH),
+                    "-o",
+                    str(dst),
+                    str(src)
+                ]
+                print(f"Decrypting {src} → {dst}")
+                try:
+                    subprocess.run(cmd, check=True)
+                except subprocess.CalledProcessError:
+                    print(f"Failed to decrypt {src}")
 
-    temp_pull.cleanup()
-    print(f"Courses pulled and decrypted into {COURSES_DIR}")
 
 def add_device():
     new_path = Path(input("Enter full path to copy your age key for a new device: ").strip())
