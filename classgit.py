@@ -97,19 +97,16 @@ def push_courses(repo_url):
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = Path(tmpdirname)
-        temp_courses = tmpdir / "courses"
-        temp_courses.mkdir(parents=True)
-
-        # Encrypt files
-        for f in COURSES_DIR.iterdir():
-            if f.is_file():
-                encrypt_file(f, recipient, temp_courses / (f.name + ".age"))
-
-
-        # Copy structure to temp repo
-        for item in temp_courses.iterdir():
-            shutil.move(str(item), tmpdir)
-        temp_courses.rmdir()
+        
+        # Encrypt all files recursively
+        for root, dirs, files in os.walk(COURSES_DIR):
+            rel_path = Path(root).relative_to(COURSES_DIR)
+            for d in dirs:
+                (tmpdir / rel_path / d).mkdir(parents=True, exist_ok=True)
+            for f in files:
+                src = Path(root) / f
+                dst = tmpdir / rel_path / (f + ".age")
+                encrypt_file(src, recipient, dst)
 
         # Initialize temp repo and push
         run("git init", cwd=tmpdir)
@@ -121,7 +118,9 @@ def push_courses(repo_url):
         run("git add .", cwd=tmpdir)
         run('git commit -m "Update courses"', cwd=tmpdir)
         run("git push -u origin main --force", cwd=tmpdir)
+
     print("Courses encrypted and pushed. Local files remain unencrypted.")
+
 
 def pull_courses():
     """Pull encrypted files from GitHub and decrypt into COURSES_DIR."""
