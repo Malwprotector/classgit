@@ -7,6 +7,7 @@
 - Never pushes the key
 - GitHub repo URL and public key stored locally during setup
 - Incremental pushes: only new or modified files are encrypted and pushed
+- Generates a README.md during push with system info
 """
 
 import os
@@ -89,6 +90,31 @@ def get_public_key():
 # -----------------------------
 # Core Functions
 # -----------------------------
+def generate_readme(tmpdir):
+    """Create or update README.md with system info."""
+    readme_path = tmpdir / "README.md"
+    content = f"""# ClassGit
+
+ClassGit is a system for secure git synchronization of your course files using Git and age encryption.
+
+**Default local folder:** `{LOCAL_DIR}`
+**Encrypted files:** Stored on GitHub only, local files remain unencrypted.
+**Key location:** `{AGE_KEY_PATH}` (never pushed)
+**Public key:** stored locally for encryption
+
+## Usage
+
+1. **Push courses:** Encrypts all files in `{COURSES_DIR}` and pushes them to the remote repo.
+2. **Pull courses:** Downloads encrypted files from GitHub and decrypts them automatically into `{COURSES_DIR}`.
+3. **Add a new device:** Copy your age key to another device to access the encrypted files.
+4. **Git status:** Check the repository status locally.
+
+## License & Disclaimer
+
+ClassGit is provided **as-is**. The author is not responsible for any data loss, misuse, or damage caused while using the system.
+"""
+    readme_path.write_text(content)
+
 def push_courses(repo_url):
     recipient = get_public_key()
     if not any(COURSES_DIR.iterdir()):
@@ -109,20 +135,25 @@ def push_courses(repo_url):
             for f in files:
                 src = Path(root) / f
                 dst = tmpdir / rel_path / (f + ".age")
-                # Encrypt only if missing or source is newer
                 if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
                     encrypt_file(src, recipient, dst)
+
+        # Generate README.md in temp repo
+        generate_readme(tmpdir)
 
         # Add gitignore
         with open(tmpdir / ".gitignore", "w") as f:
             f.write("config/age_key.txt\n")
         run("git add .gitignore", cwd=tmpdir)
 
-        # Add only new or changed files
+        # Add README.md
+        run("git add README.md", cwd=tmpdir)
+
+        # Add new or changed files
         run("git add .", cwd=tmpdir)
         status = subprocess.run("git status --porcelain", shell=True, cwd=tmpdir, capture_output=True, text=True)
         if status.stdout.strip():
-            run('git commit -m "Update courses"', cwd=tmpdir)
+            run('git commit -m "Update courses and README"', cwd=tmpdir)
             run("git push", cwd=tmpdir)
             print("Courses encrypted and pushed. Local files remain unencrypted.")
         else:
