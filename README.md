@@ -140,7 +140,11 @@ You paste the public key here. The files will be encrypted using this key. **The
         PhysicsNotes.pdf
     config/
         age_key.txt
+    encrypted/ -
+        Math101.pdf.age
+        PhysicsNotes.pdf.age
 ```
+The `encrypted` folder contains the encrypted files to push. Do not modify it !
 
 3. Run the script and select:
 
