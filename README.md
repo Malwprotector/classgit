@@ -140,7 +140,7 @@ You paste the public key here. The files will be encrypted using this key. **The
         PhysicsNotes.pdf
     config/
         age_key.txt
-    encrypted/ -
+    encrypted/
         Math101.pdf.age
         PhysicsNotes.pdf.age
 ```
