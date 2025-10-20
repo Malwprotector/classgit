@@ -95,7 +95,7 @@ def generate_readme(tmpdir):
     readme_path = tmpdir / "README.md"
     content = f"""# ClassGit
 
-ClassGit is a system for secure git synchronization of your course files using Git and age encryption.
+ClassGit is a system for secure synchronization of your course files using Git and age encryption.
 
 **Default local folder:** `{LOCAL_DIR}`
 **Encrypted files:** Stored on GitHub only, local files remain unencrypted.
