@@ -34,10 +34,22 @@ def run(cmd, cwd=None):
         exit(1)
 
 def encrypt_file(file_path, recipient, output_path):
-    run(f"age -r {recipient} -o {output_path} {file_path}")
+    subprocess.run([
+        "age",
+        "-r", recipient,
+        "-o", str(output_path),
+        str(file_path)
+    ], check=True)
 
 def decrypt_file(file_path, key_path, output_path):
-    run(f"age -d -i {key_path} -o {output_path} {file_path}")
+    subprocess.run([
+        "age",
+        "-d",
+        "-i", str(key_path),
+        "-o", str(output_path),
+        str(file_path)
+    ], check=True)
+
 
 # -----------------------------
 # Setup Functions
