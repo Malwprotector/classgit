@@ -6,6 +6,7 @@
 - Decrypts pulled files automatically into ~/ClassGit/courses
 - Never pushes the key
 - GitHub repo URL and public key stored locally during setup
+- Incremental pushes: only new or modified files are encrypted and pushed
 """
 
 import os
@@ -49,7 +50,6 @@ def decrypt_file(file_path, key_path, output_path):
         "-o", str(output_path),
         str(file_path)
     ], check=True)
-
 
 # -----------------------------
 # Setup Functions
@@ -97,8 +97,11 @@ def push_courses(repo_url):
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = Path(tmpdirname)
-        
-        # Encrypt all files recursively
+
+        # Clone remote repo into temp dir
+        run(f"git clone {repo_url} {tmpdir}", cwd=LOCAL_DIR)
+
+        # Encrypt files recursively
         for root, dirs, files in os.walk(COURSES_DIR):
             rel_path = Path(root).relative_to(COURSES_DIR)
             for d in dirs:
@@ -106,21 +109,24 @@ def push_courses(repo_url):
             for f in files:
                 src = Path(root) / f
                 dst = tmpdir / rel_path / (f + ".age")
-                encrypt_file(src, recipient, dst)
+                # Encrypt only if missing or source is newer
+                if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+                    encrypt_file(src, recipient, dst)
 
-        # Initialize temp repo and push
-        run("git init", cwd=tmpdir)
-        run(f"git remote add origin {repo_url}", cwd=tmpdir)
-        run("git branch -M main", cwd=tmpdir)
+        # Add gitignore
         with open(tmpdir / ".gitignore", "w") as f:
             f.write("config/age_key.txt\n")
         run("git add .gitignore", cwd=tmpdir)
+
+        # Add only new or changed files
         run("git add .", cwd=tmpdir)
-        run('git commit -m "Update courses"', cwd=tmpdir)
-        run("git push -u origin main --force", cwd=tmpdir)
-
-    print("Courses encrypted and pushed. Local files remain unencrypted.")
-
+        status = subprocess.run("git status --porcelain", shell=True, cwd=tmpdir, capture_output=True, text=True)
+        if status.stdout.strip():
+            run('git commit -m "Update courses"', cwd=tmpdir)
+            run("git push", cwd=tmpdir)
+            print("Courses encrypted and pushed. Local files remain unencrypted.")
+        else:
+            print("No changes detected. Nothing to push.")
 
 def pull_courses():
     """Pull encrypted files from GitHub and decrypt into COURSES_DIR."""
@@ -134,10 +140,14 @@ def pull_courses():
     # Ensure courses dir exists
     COURSES_DIR.mkdir(exist_ok=True)
 
-    # Decrypt all .age files into COURSES_DIR
-    for f in tmpdir.iterdir():
-        if f.suffix == ".age":
-            decrypt_file(f, AGE_KEY_PATH, COURSES_DIR / f.with_suffix('').name)
+    # Decrypt all .age files into COURSES_DIR, preserving structure
+    for root, dirs, files in os.walk(tmpdir):
+        rel_path = Path(root).relative_to(tmpdir)
+        target_dir = COURSES_DIR / rel_path
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            if f.endswith(".age"):
+                decrypt_file(Path(root)/f, AGE_KEY_PATH, target_dir / Path(f).with_suffix('').name)
 
     temp_pull.cleanup()
     print(f"Courses pulled and decrypted into {COURSES_DIR}")
