@@ -101,6 +101,8 @@ ClassGit is a system for secure synchronization of your course files using Git a
 **Encrypted files:** Stored on GitHub only, local files remain unencrypted.
 **Key location:** `{AGE_KEY_PATH}` (never pushed)
 **Public key:** stored locally for encryption
+**Do not remove** the `{LOCAL_DIR}`/.git folder. 
+
 
 ## Usage
 
