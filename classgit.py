@@ -123,59 +123,90 @@ def push_courses(repo_url):
         print("No course files found to push.")
         return
 
-    ENCRYPTED_DIR = LOCAL_DIR / "encrypted"
-    ENCRYPTED_DIR.mkdir(parents=True, exist_ok=True)
+    encrypted_dir = LOCAL_DIR / "encrypted"
+    encrypted_dir.mkdir(exist_ok=True)
 
-    # Encrypt only new or modified files into ENCRYPTED_DIR
+    print("Synchronizing encrypted directory...")
+
+    # Encrypt or update changed files
     for root, dirs, files in os.walk(COURSES_DIR):
         rel_path = Path(root).relative_to(COURSES_DIR)
         for d in dirs:
-            (ENCRYPTED_DIR / rel_path / d).mkdir(parents=True, exist_ok=True)
+            (encrypted_dir / rel_path / d).mkdir(parents=True, exist_ok=True)
         for f in files:
             src = Path(root) / f
-            dst = ENCRYPTED_DIR / rel_path / (f + ".age")
+            dst = encrypted_dir / rel_path / (f + ".age")
             if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
-                print(f"Encrypting {src} → {dst}")
+                print(f"🔒 Encrypting {src} → {dst}")
                 encrypt_file(src, recipient, dst)
 
-    # Generate README.md in repo root
+    # Walk encrypted_dir and remove any .age whose original in COURSES_DIR doesn't exist.
+    removed_any = False
+    for root, dirs, files in os.walk(encrypted_dir):
+        for f in files:
+            if not f.endswith(".age"):
+                continue
+            enc_path = Path(root) / f
+            try:
+                rel = enc_path.relative_to(encrypted_dir)
+            except Exception:
+                # skip weird paths
+                continue
+            orig = COURSES_DIR / rel.with_suffix('')  # remove .age
+            if not orig.exists():
+                print(f"🗑️ Removing orphan encrypted file: {enc_path}")
+                try:
+                    enc_path.unlink()
+                    removed_any = True
+                except Exception as e:
+                    print(f"❌ Failed to remove {enc_path}: {e}")
+
+    # Now remove any empty directories inside encrypted_dir (bottom-up)
+    for root, dirs, files in os.walk(encrypted_dir, topdown=False):
+        rootp = Path(root)
+        # skip the top-level encrypted_dir itself
+        if rootp == encrypted_dir:
+            continue
+        # if directory is empty (no files, no subdirs), remove it
+        try:
+            if not any(rootp.iterdir()):
+                print(f"🗑️ Removing empty directory: {rootp}")
+                rootp.rmdir()
+                removed_any = True
+        except Exception as e:
+            print(f"❌ Failed to remove dir {rootp}: {e}")
+
+    # Generate README.md in repo root (LOCAL_DIR)
     generate_readme(LOCAL_DIR)
 
-    # Add gitignore and README
-    with open(LOCAL_DIR / ".gitignore", "w") as f:
-        f.write("# Ignore local and sensitive data\n")
+    # Update .gitignore so we ignore raw local stuff but track encrypted files
+    gitignore_path = LOCAL_DIR / ".gitignore"
+    with open(gitignore_path, "w") as f:
+        f.write("# Local sensitive / plaintext\n")
         f.write("config/\n")
         f.write("courses/\n")
-        f.write("\n# Keep encrypted files and README\n")
-        f.write("!.age\n")
-        f.write("!*.age\n")
+        f.write("\n# Keep encrypted files (in encrypted/ or repo root) and README\n")
+        f.write("!.gitignore\n")
         f.write("!README.md\n")
+        # do not globally ignore .age — we want to track them inside encrypted/
+        # If you store encrypted files under encrypted/, ensure encrypted/ is added.
+        # If you store them at repo root, do not ignore *.age here.
 
-    run("git add .gitignore README.md", cwd=LOCAL_DIR)
 
-    # Stage only encrypted files (not the local courses)
-    run(f"git add {ENCRYPTED_DIR}", cwd=LOCAL_DIR)
-
-    # Commit and push
+    # Add all changes to git
+    run("git add .", cwd=LOCAL_DIR)
     status = subprocess.run("git status --porcelain", shell=True, cwd=LOCAL_DIR,
                             capture_output=True, text=True)
     if status.stdout.strip():
-        run('git commit -m "Update encrypted courses and README"', cwd=LOCAL_DIR)
-        # Handle missing upstream branch automatically
-        result = subprocess.run("git push", shell=True, cwd=LOCAL_DIR)
-        if result.returncode != 0:
-            # Push changes, setting upstream if needed
-            push_cmd = "git push"
-            result = subprocess.run(push_cmd, shell=True, cwd=LOCAL_DIR)
-            if result.returncode != 0:
-                run("git push -u origin main", cwd=LOCAL_DIR)
-
-        print("Courses encrypted and pushed successfully.")
+        run('git commit -m "Update courses and README"', cwd=LOCAL_DIR)
+        run("git push -u origin main", cwd=LOCAL_DIR)
+        print("✅ Courses encrypted and pushed.")
     else:
-        print("No changes detected. Nothing to push.")
+        print("📋 No changes detected. Nothing to push.")
+
 
 def pull_courses():
-    print("Pulling latest encrypted files from remote...")
+    print("⬇️ Pulling latest encrypted files from remote...")
     subprocess.run(["git", "pull"], cwd=LOCAL_DIR)
 
     encrypted_dir = LOCAL_DIR / "encrypted"
@@ -200,18 +231,18 @@ def pull_courses():
                     str(dst),
                     str(src)
                 ]
-                print(f"Decrypting {src} → {dst}")
+                print(f"🔓 Decrypting {src} → {dst}")
                 try:
                     subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError:
-                    print(f"Failed to decrypt {src}")
+                    print(f"❌ Failed to decrypt {src}")
 
 
 def add_device():
     new_path = Path(input("Enter full path to copy your age key for a new device: ").strip())
     new_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(AGE_KEY_PATH, new_path)
-    print(f"Key copied to {new_path}")
+    print(f"🔑 Key copied to {new_path}")
 
 def status():
     run("git status", cwd=LOCAL_DIR)
@@ -224,11 +255,11 @@ def menu():
     while True:
         print("""
 ClassGit Menu
-1. Push courses
-2. Pull courses
-3. Add a new device
-4. Show Git status
-5. Quit
+1. ⬆️ Push courses
+2. ⬇️ Pull courses
+3. 💻 Add a new device
+4. 📋 Show Git status
+5. 🚪 Quit
 """)
         choice = input("Select an option: ").strip()
         if choice == "1":
@@ -242,7 +273,7 @@ ClassGit Menu
         elif choice == "5":
             exit()
         else:
-            print("Invalid option, try again.")
+            print("❓ Invalid option, try again.")
 
 # -----------------------------
 # Main
