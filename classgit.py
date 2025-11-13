@@ -241,28 +241,50 @@ def push_courses(repo_url):
 
 def pull_courses():
     print("⬇️ Pulling latest encrypted files from remote...")
-    subprocess.run(["git", "pull"], cwd=LOCAL_DIR)
+
+    # --- fetch and force align with origin/main if divergence ---
+    fetch = subprocess.run(["git", "fetch", "origin"], cwd=LOCAL_DIR)
+    if fetch.returncode != 0:
+        print("❌ Failed to fetch from remote.")
+        return
+
+    # check divergence
+    status = subprocess.run(["git", "status", "--porcelain=2", "--branch"],
+                            cwd=LOCAL_DIR, capture_output=True, text=True)
+    if "branch.ab" in status.stdout and "+" in status.stdout:
+        print("⚠️ Local branch diverged from remote. Resetting to origin/main...")
+        reset = subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=LOCAL_DIR)
+        if reset.returncode != 0:
+            print("❌ Failed to reset to remote branch.")
+            return
+    else:
+        # normal fast-forward pull
+        pull = subprocess.run(["git", "pull", "--ff-only"], cwd=LOCAL_DIR)
+        if pull.returncode != 0:
+            print("⚠️ Pull failed, forcing reset to remote state...")
+            subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=LOCAL_DIR)
 
     encrypted_dir = LOCAL_DIR / "encrypted"
     decrypted_dir = Path.home() / "ClassGit" / "courses"
     decrypted_dir.mkdir(parents=True, exist_ok=True)
 
-    # Iterate through all .age files in the repo (including nested folders if needed)
+    if not encrypted_dir.exists():
+        print("❌ No encrypted/ directory found after sync. Check remote repo contents.")
+        return
+
+    # Iterate through all .age files and decrypt them
     for root, _, files in os.walk(encrypted_dir):
         for file in files:
             if file.endswith(".age"):
                 src = Path(root) / file
                 relative = src.relative_to(encrypted_dir)
-                dst = decrypted_dir / relative.with_suffix("")  # remove .age
+                dst = decrypted_dir / relative.with_suffix("")
 
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 cmd = [
-                    "age",
-                    "-d",
-                    "-i",
-                    str(AGE_KEY_PATH),
-                    "-o",
-                    str(dst),
+                    "age", "-d",
+                    "-i", str(AGE_KEY_PATH),
+                    "-o", str(dst),
                     str(src)
                 ]
                 print(f"🔓 Decrypting {src} → {dst}")
@@ -270,6 +292,7 @@ def pull_courses():
                     subprocess.run(cmd, check=True)
                 except subprocess.CalledProcessError:
                     print(f"❌ Failed to decrypt {src}")
+
 
 
 def add_device():
