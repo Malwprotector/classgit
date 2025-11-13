@@ -1,5 +1,3 @@
-j'utilie classgit pour syncro mes cours. j'ai tous mes cours sur un ordi, que je push régulièrement vers le dépôt github. j'aivoulu ajouter un nouvel ordi, j'ai mis le dossier config aubon emplacement sur le nouvel ordi et j'ai git pull. cependant, je ne vois absolument rien dans le répertoire courses et il n'y a pas de répertoire encrypted, mais le répertoire .git prends plusieurs gigas. Qu'est ce qui se passe et comment régler ??
-
 #!/usr/bin/env python3
 """
 
