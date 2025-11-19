@@ -160,9 +160,9 @@ def push_courses(repo_url):
     encrypted_dir = LOCAL_DIR / "encrypted"
     encrypted_dir.mkdir(exist_ok=True)
 
-    print("Synchronizing encrypted directory...")
+    print("🔒 Synchronizing encrypted directory...")
 
-    # Encrypt or update changed files
+    # --- Encrypt or update changed files ---
     for root, dirs, files in os.walk(COURSES_DIR):
         rel_path = Path(root).relative_to(COURSES_DIR)
         for d in dirs:
@@ -174,8 +174,7 @@ def push_courses(repo_url):
                 print(f"🔒 Encrypting {src} → {dst}")
                 encrypt_file(src, recipient, dst)
 
-    # Walk encrypted_dir and remove any .age whose original in COURSES_DIR doesn't exist.
-    removed_any = False
+    # --- Remove orphan encrypted files ---
     for root, dirs, files in os.walk(encrypted_dir):
         for f in files:
             if not f.endswith(".age"):
@@ -184,36 +183,31 @@ def push_courses(repo_url):
             try:
                 rel = enc_path.relative_to(encrypted_dir)
             except Exception:
-                # skip weird paths
                 continue
             orig = COURSES_DIR / rel.with_suffix('')  # remove .age
             if not orig.exists():
                 print(f"🗑️ Removing orphan encrypted file: {enc_path}")
                 try:
                     enc_path.unlink()
-                    removed_any = True
                 except Exception as e:
                     print(f"❌ Failed to remove {enc_path}: {e}")
 
-    # Now remove any empty directories inside encrypted_dir (bottom-up)
+    # --- Remove empty directories in encrypted_dir ---
     for root, dirs, files in os.walk(encrypted_dir, topdown=False):
         rootp = Path(root)
-        # skip the top-level encrypted_dir itself
         if rootp == encrypted_dir:
             continue
-        # if directory is empty (no files, no subdirs), remove it
-        try:
-            if not any(rootp.iterdir()):
+        if not any(rootp.iterdir()):
+            try:
                 print(f"🗑️ Removing empty directory: {rootp}")
                 rootp.rmdir()
-                removed_any = True
-        except Exception as e:
-            print(f"❌ Failed to remove dir {rootp}: {e}")
+            except Exception as e:
+                print(f"❌ Failed to remove dir {rootp}: {e}")
 
-    # Generate README.md in repo root (LOCAL_DIR)
+    # --- Generate README.md ---
     generate_readme(LOCAL_DIR)
 
-    # Update .gitignore so we ignore raw local stuff but track encrypted files
+    # --- Update .gitignore ---
     gitignore_path = LOCAL_DIR / ".gitignore"
     with open(gitignore_path, "w") as f:
         f.write("# Local sensitive / plaintext\n")
@@ -222,21 +216,22 @@ def push_courses(repo_url):
         f.write("\n# Keep encrypted files (in encrypted/ or repo root) and README\n")
         f.write("!.gitignore\n")
         f.write("!README.md\n")
-        # do not globally ignore .age — we want to track them inside encrypted/
-        # If you store encrypted files under encrypted/, ensure encrypted/ is added.
-        # If you store them at repo root, do not ignore *.age here.
 
+    # --- Git snapshot (single commit) ---
+    print("🧹 Creating single-commit snapshot to avoid large history...")
 
-    # Add all changes to git
-    run("git add .", cwd=LOCAL_DIR)
-    status = subprocess.run("git status --porcelain", shell=True, cwd=LOCAL_DIR,
-                            capture_output=True, text=True)
-    if status.stdout.strip():
-        run('git commit -m "Update courses and README"', cwd=LOCAL_DIR)
-        run("git push -u origin main", cwd=LOCAL_DIR)
-        print("✅ Courses encrypted and pushed.")
-    else:
-        print("📋 No changes detected. Nothing to push.")
+    subprocess.run(["git", "checkout", "--orphan", "temp-branch"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "commit", "-m", "Snapshot: update courses and README"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "branch", "-D", "main"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "branch", "-m", "main"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "reflog", "expire", "--expire=now", "--all"], cwd=LOCAL_DIR, check=True)
+    subprocess.run(["git", "gc", "--prune=now", "--aggressive"], cwd=LOCAL_DIR, check=True)
+
+    # --- Push forced to remote ---
+    subprocess.run(["git", "push", "--force", "origin", "main"], cwd=LOCAL_DIR, check=True)
+    print("✅ Courses encrypted and pushed (history reset).")
+
 
 
 def pull_courses():
